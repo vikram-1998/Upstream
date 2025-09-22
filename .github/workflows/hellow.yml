@@ -13,3 +13,7 @@ jobs:
 
       - name: say hello
         run: echo "Hello world"
+      - name: List workspace files
+        run: |
+          echo "Workspace path: $GITHUB_WORKSPACE"
+          ls -la $GITHUB_WORKSPACE
