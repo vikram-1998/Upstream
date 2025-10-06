@@ -1,0 +1,144 @@
+@Library('Test') _
+
+pipeline {
+    agent {
+        label 'docker'
+    }
+    tools {
+        maven 'maven'
+    }
+    triggers {
+        githubPush()
+    }
+    options {
+        buildDiscarder logRotator(
+            artifactDaysToKeepStr: '', 
+            artifactNumToKeepStr: '', 
+            daysToKeepStr: '2', 
+            numToKeepStr: '5'
+        )
+    }
+    environment {
+        buildnumber = "${env.BUILD_NUMBER}"
+    }
+    stages {
+        stage('SCM checkout') {
+            steps {
+                git credentialsId: 'Git-Key', branch: 'master', url: 'git@github.com:vikram-1998/maven-web-application.git'
+                script {
+                    slacknotification("📥 Checkout complete")
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean package'
+                script {
+                    slacknotification("✅ Build finished successfully")
+                }
+            }
+        }
+
+        stage('Execute Sonar') {
+            steps {
+                withSonarQubeEnv('sonarQube') {
+                    sh 'mvn sonar:sonar'
+                }
+                script {
+                    slacknotification("🔎 SonarQube scan executed")
+                }
+            }
+        }
+
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 1, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+                script {
+                    slacknotification("🚦 Quality Gate checked")
+                }
+            }
+        }
+
+        stage('Upload Artifact to Nexus') {
+            steps {
+                script {
+                    def version = sh(
+                        script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+                        returnStdout: true
+                    ).trim()
+
+                    def repo = version.endsWith('-SNAPSHOT') ? 'myDemo1' : 'MyDemo'
+
+                    nexusArtifactUploader(
+                        nexusVersion: 'nexus3',
+                        protocol: 'http',
+                        nexusUrl: '172.31.47.31:8081',
+                        groupId: 'com.mt',
+                        version: version,
+                        repository: repo,
+                        credentialsId: '0f62ba0b-fae9-45e6-927b-0b29bd537692',
+                        artifacts: [[
+                            artifactId: 'maven-web-application',
+                            classifier: '',
+                            file: "target/maven-web-application.war",
+                            type: 'war'
+                        ]]
+                    )
+
+                    slacknotification("📦 Artifact uploaded to Nexus")
+                }
+            }
+        }
+stage('Build and Push Docker Image to ECR') {
+    steps {
+        script {
+            // 1️⃣ Build Docker image
+            sh "docker build -t 124314579054.dkr.ecr.ap-south-1.amazonaws.com/test-ns/eks-demo:${buildnumber} ."
+            slacknotification("🐳 Docker image built successfully")
+
+            // 2️⃣ Log in to ECR using IAM role (no credentials needed)
+            sh "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 124314579054.dkr.ecr.ap-south-1.amazonaws.com"
+
+            // 3️⃣ Push the image
+            sh "docker push 124314579054.dkr.ecr.ap-south-1.amazonaws.com/test-ns/eks-demo:${buildnumber}"
+
+            // 4️⃣ Cleanup local image
+            sh "docker rmi 124314579054.dkr.ecr.ap-south-1.amazonaws.com/test-ns/eks-demo:${buildnumber}"
+
+            slacknotification("📤 Docker image pushed to ECR successfully")
+        }
+    }
+}
+stage('Deploy to EKS') {
+    steps {
+        script {
+            // Replace the BUILD_NUMBER placeholder in your deployment YAML
+            sh "sed -i 's/BUILD_NUMBER/${buildnumber}/g' mavenwebappdeployment.yaml"
+
+            // Apply the updated deployment to EKS
+            sh "kubectl apply -f mavenwebappdeployment.yaml"
+
+            // Wait for rollout to complete
+            sh "kubectl rollout status deployment/javawebapp-deployment"
+
+            slacknotification("🚀 Deployment to EKS completed successfully")
+        }
+    }
+}
+
+    }
+    post {
+        success {
+            slacknotification("✅ Pipeline completed successfully")
+        }
+        failure {
+            slacknotification("❌ Pipeline failed")
+        }
+        always {
+            slacknotification("ℹ️ Pipeline execution finished, please check status")
+        }
+    }
+}
