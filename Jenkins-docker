@@ -1,0 +1,66 @@
+pipeline {
+    agent {
+        label 'docker'
+    }
+    tools {
+        maven 'maven'
+    }
+    triggers {
+        githubPush()
+    }
+    options {
+        buildDiscarder logRotator(
+            artifactDaysToKeepStr: '', 
+            artifactNumToKeepStr: '', 
+            daysToKeepStr: '2', 
+            numToKeepStr: '5'
+        )
+    }
+    stages {
+        stage('SCM checkout') {
+            steps {
+                git credentialsId: 'Git-Key', branch: 'main', url: 'git@github.com:vikram-1998/Springboot-Mongo-Application.git'
+                
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+         stage('Build docker image') {
+            steps {
+                script {
+                def buildnumber = env.BUILD_NUMBER
+                sh "docker build -t vikrampolollu/java-spring-mongo:${buildnumber} ."
+                }
+            }
+        }
+        
+        stage('Push image to docker') {
+            steps {
+			script {
+			       def buildnumber = env.BUILD_NUMBER
+                withCredentials([string(credentialsId: 'Docker_password_key', variable: 'Docker_password')]) {
+        sh "docker login -u vikrampolollu -p ${Docker_password}"
+                  }
+	    sh "docker push vikrampolollu/java-spring-mongo:${buildnumber}"
+		}
+            }
+        }
+      /*stage('Deploy to Kubernetes') {
+    steps {
+        script {
+             def buildnumber = env.BUILD_NUMBER
+                // Replace :latest in YAML with the actual build number
+                sh "sed -i 's/:latest/:${buildnumber}/g' mavenwebappdeployment.yaml"
+        withCredentials([file(credentialsId: 'Kubernetes_credentials', variable: 'kubernetes')]) {
+            sh "kubectl --kubeconfig=$kubernetes apply -f mavenwebappdeployment.yaml"
+            sh "kubectl --kubeconfig=$kubernetes rollout status deployment/javawebapp-deployment"
+        }
+        }
+    }
+}*/
+		}//stages
+		}//pipeline
