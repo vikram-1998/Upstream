@@ -1,0 +1,41 @@
+pipeline {
+
+agent none
+
+stages {
+   stage ('build') {
+      steps {
+	  echo "building"
+	  }
+   }
+   
+   stage ('parallel') {
+   parallel {
+        stage ('Unit Tests') {
+		    agent { label 'slaves' }
+			 
+			steps {
+			   echo "running Unit tests"
+			}
+		}
+		
+		stage ('Integration Tests') {
+		agent any
+		  steps {
+		  echo "running Integration steps"
+		  }
+		}
+   }
+   
+   }
+       
+ stage ('deploy') {
+    agent any
+	steps {
+	
+	echo "deploying"
+	}
+   }
+}
+
+}
