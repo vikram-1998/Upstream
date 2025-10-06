@@ -1,0 +1,21 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'Branch', defaultValue: 'main', description: 'Enter the branch name')
+        text(name: 'Test', description: 'Enter the release notes')
+        choice(name: 'Env', choices: ['DEV', 'UAT', 'QA'], description: 'Select the environment')
+        booleanParam(name: 'test2', defaultValue: true, description: 'Select true or false')
+    }
+
+    stages {
+        stage('readproperties') {
+            steps {
+                echo "Branch: ${params.Branch}"
+                echo "Release Notes: ${params.Test}"
+                echo "Environment: ${params.Env}"
+                echo "Boolean Test: ${params.test2}"
+            }
+        }
+    }
+}
