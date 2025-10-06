@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+    environment {
+        NAME = 'vikram'
+        PROFESSION = 'DevOps Engineer'
+    }
+    
+    stages{
+        stage('buildvariables') {
+            steps{
+                echo "${BUILD_NUMBER}"
+                echo "${BUILD_ID}"
+                echo "${BUILD_URL}"
+                echo "${BUILD_TAG}"
+                echo "my name is: ${NAME} and my profession is: ${PROFESSION}"
+                sh 'echo "my name is $NAME and my profession is: $PROFESSION"'
+            }
+        }
+        stage('SCMvariables'){
+            environment {
+                NAME = 'Vineeth'
+                PROFESSION = 'Developer'
+            }
+            steps{
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE'){
+                echo "${GIT_URL}"
+                echo "${GIT_COMMIT}"
+                echo "${GIT_PREVIOUS_COMMIT}"
+                echo "${GIT_BRANCH}"
+                }
+                echo "my name is: ${NAME} and my profession is: ${PROFESSION}"
+                sh 'echo "my name is $NAME and my profession is: $PROFESSION"'
+                echo "running next stages"
+            }
+        }
+        stage('job'){
+            steps{
+                echo "${JOB_NAME}"
+                echo "${WORKSPACE}"
+                echo "${EXECUTOR_NUMBER}"
+            }
+        }
+        stage('Node'){
+            steps{
+                echo "${NODE_NAME}"
+                echo "${NODE_LABELS}"
+                echo "${JENKINS_HOME}"
+                echo "${JENKINS_URL}"
+            }
+        }
+    }//stages closing
+}
