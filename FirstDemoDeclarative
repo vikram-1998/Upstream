@@ -1,0 +1,142 @@
+@Library('Test') _
+
+pipeline {
+    agent {
+        label 'docker'
+    }
+    tools {
+        maven 'maven'
+    }
+    triggers {
+        githubPush()
+    }
+    options {
+        buildDiscarder logRotator(
+            artifactDaysToKeepStr: '', 
+            artifactNumToKeepStr: '', 
+            daysToKeepStr: '2', 
+            numToKeepStr: '5'
+        )
+    }
+    environment {
+        buildnumber = "${env.BUILD_NUMBER}"
+    }
+    stages {
+        stage('SCM checkout') {
+            steps {
+                git credentialsId: 'Git-Key', branch: 'master', url: 'git@github.com:vikram-1998/maven-web-application.git'
+                script {
+                    slacknotification("📥 Checkout complete")
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean package'
+                script {
+                    slacknotification("✅ Build finished successfully")
+                }
+            }
+        }
+
+        stage('Execute Sonar') {
+            steps {
+                withSonarQubeEnv('sonarQube') {
+                    sh 'mvn sonar:sonar'
+                }
+                script {
+                    slacknotification("🔎 SonarQube scan executed")
+                }
+            }
+        }
+
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 1, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+                script {
+                    slacknotification("🚦 Quality Gate checked")
+                }
+            }
+        }
+
+        stage('Upload Artifact to Nexus') {
+            steps {
+                script {
+                    def version = sh(
+                        script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+                        returnStdout: true
+                    ).trim()
+
+                    def repo = version.endsWith('-SNAPSHOT') ? 'myDemo1' : 'MyDemo'
+
+                    nexusArtifactUploader(
+                        nexusVersion: 'nexus3',
+                        protocol: 'http',
+                        nexusUrl: '172.31.47.31:8081',
+                        groupId: 'com.mt',
+                        version: version,
+                        repository: repo,
+                        credentialsId: '0f62ba0b-fae9-45e6-927b-0b29bd537692',
+                        artifacts: [[
+                            artifactId: 'maven-web-application',
+                            classifier: '',
+                            file: "target/maven-web-application.war",
+                            type: 'war'
+                        ]]
+                    )
+
+                    slacknotification("📦 Artifact uploaded to Nexus")
+                }
+            }
+        }
+
+        stage('Build docker image') {
+            steps {
+                script {
+                    sh "docker build -t vikrampolollu/java-web-app-docker:${buildnumber} ."
+                    slacknotification("🐳 Docker image built successfully")
+                }
+            }
+        }
+
+        stage('Push image to docker') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: 'Docker_password_key', variable: 'Docker_password')]) {
+                        sh "echo \$Docker_password | docker login -u vikrampolollu --password-stdin"
+                    }
+                    sh "docker push vikrampolollu/java-web-app-docker:${buildnumber}"
+                    sh "docker rmi vikrampolollu/java-web-app-docker:${buildnumber}" // cleanup
+                    slacknotification("📤 Docker image pushed to DockerHub")
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh "sed -i 's/:latest/:${buildnumber}/g' mavenwebappdeployment.yaml"
+                    withCredentials([file(credentialsId: 'Kubernetes_credentials', variable: 'kubernetes')]) {
+                        sh "kubectl --kubeconfig=$kubernetes apply -f mavenwebappdeployment.yaml"
+                        sh "kubectl --kubeconfig=$kubernetes rollout status deployment/javawebapp-deployment"
+                    }
+                    slacknotification("🚀 Deployment to Kubernetes completed")
+                }
+            }
+        }
+    }
+    post {
+        success {
+            slacknotification("✅ Pipeline completed successfully")
+        }
+        failure {
+            slacknotification("❌ Pipeline failed")
+        }
+        always {
+            slacknotification("ℹ️ Pipeline execution finished, please check status")
+        }
+    }
+}
